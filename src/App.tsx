@@ -1,22 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, X, ShoppingCart, CheckCircle2, Circle } from 'lucide-react';
-import { supabase } from './supabaseClient';
 import type { ShoppingItem } from './types/shopping';
+
+// URL base del backend (FastAPI)
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 function App() {
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [newItemName, setNewItemName] = useState('');
 
-  // Load items from localStorage on component mount
+  // Cargar items desde el backend al montar el componente
   useEffect(() => {
     const fetchItems = async () => {
-      const { data, error } = await supabase
-        .from('shopping_items')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) console.error(error);
-      else setItems(data || []);
+      try {
+        const res = await fetch(`${API_URL}/items`);
+        if (!res.ok) {
+          throw new Error('Error al cargar los ítems');
+        }
+        const data: ShoppingItem[] = await res.json();
+        setItems(data || []);
+      } catch (error) {
+        console.error('Error obteniendo ítems:', error);
+      }
     };
 
     fetchItems();
@@ -26,38 +31,61 @@ function App() {
     e.preventDefault();
     if (!newItemName.trim()) return;
 
-    const { data, error } = await supabase
-      .from('shopping_items')
-      .insert([{ name: newItemName.trim(), purchased: false }])
-      .select()
-      .single();
+    try {
+      const res = await fetch(`${API_URL}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newItemName.trim() }),
+      });
 
-    if (error) console.error(error);
-    else setItems(prev => [data, ...prev]);
+      if (!res.ok) {
+        throw new Error('Error al crear el ítem');
+      }
 
-    setNewItemName('');
+      const data: ShoppingItem = await res.json();
+      setItems(prev => [data, ...prev]);
+      setNewItemName('');
+    } catch (error) {
+      console.error('Error creando ítem:', error);
+    }
   };
 
   const togglePurchased = async (id: string, purchased: boolean) => {
-    const { data, error } = await supabase
-      .from('shopping_items')
-      .update({ purchased: !purchased })
-      .eq('id', id)
-      .select()
-      .single();
+    try {
+      const res = await fetch(`${API_URL}/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purchased: !purchased }),
+      });
 
-    if (error) console.error(error);
-    else {
+      if (!res.ok) {
+        throw new Error('Error al actualizar el ítem');
+      }
+
+      const updated: ShoppingItem = await res.json();
+
       setItems(prev =>
-        prev.map(item => (item.id === id ? { ...item, purchased: !purchased } : item))
+        prev.map(item => (item.id === id ? updated : item))
       );
+    } catch (error) {
+      console.error('Error actualizando ítem:', error);
     }
   };
 
   const deleteItem = async (id: string) => {
-    const { error } = await supabase.from('shopping_items').delete().eq('id', id);
-    if (error) console.error(error);
-    else setItems(prev => prev.filter(item => item.id !== id));
+    try {
+      const res = await fetch(`${API_URL}/items/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        throw new Error('Error al eliminar el ítem');
+      }
+
+      setItems(prev => prev.filter(item => item.id !== id));
+    } catch (error) {
+      console.error('Error eliminando ítem:', error);
+    }
   };
 
   const completedCount = items.filter(item => item.purchased).length;
@@ -75,7 +103,7 @@ function App() {
             </div>
             <h1 className="text-4xl font-bold text-gray-800">Lista de Compras</h1>
           </div>
-          
+
           {totalCount > 0 && (
             <div className="flex justify-center gap-6 text-sm">
               <div className="flex items-center gap-2">
@@ -146,7 +174,7 @@ function App() {
                       <Circle className="w-6 h-6" />
                     )}
                   </button>
-                  
+
                   <span
                     className={`flex-1 text-lg transition-all duration-200 ${
                       item.purchased
@@ -156,7 +184,7 @@ function App() {
                   >
                     {item.name}
                   </span>
-                  
+
                   <button
                     onClick={() => deleteItem(item.id)}
                     className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all duration-200 hover:scale-110"
@@ -175,8 +203,16 @@ function App() {
             <button
               onClick={async () => {
                 const completedIds = items.filter(i => i.purchased).map(i => i.id);
-                await supabase.from('shopping_items').delete().in('id', completedIds);
-                setItems(prev => prev.filter(item => !item.purchased));
+                try {
+                  await fetch(`${API_URL}/items/completed/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: completedIds }),
+                  });
+                  setItems(prev => prev.filter(item => !item.purchased));
+                } catch (error) {
+                  console.error('Error eliminando completados:', error);
+                }
               }}
               className="px-6 py-2 text-gray-500 hover:text-red-600 border border-gray-300 hover:border-red-300 rounded-xl transition-all duration-200 hover:bg-red-50"
             >
